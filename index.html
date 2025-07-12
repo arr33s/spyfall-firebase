@@ -1,0 +1,189 @@
+<!-- Spyfall Game cu lobby pe baza de cod unic si sincronizare globala -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Spyfall Game</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; max-width: 700px; margin: auto; }
+    .hidden { display: none; }
+    button { padding: 8px 16px; font-size: 16px; }
+    .timer { font-size: 24px; font-weight: bold; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <h1>Spyfall Online</h1>
+
+  <div id="setupSection">
+    <p><strong>Admin:</strong> Click pentru a genera un cod de joc.</p>
+    <button onclick="generateGameCode()">Genereaza cod joc</button>
+    <p id="gameCodeDisplay"></p>
+  </div>
+
+  <div id="joinSection" class="hidden">
+    <p>Introdu codul jocului si numele tau:</p>
+    <input type="text" id="inputCode" placeholder="Cod joc" />
+    <input type="text" id="playerName" placeholder="Nume jucator" />
+    <button onclick="joinGame()">Join</button>
+  </div>
+
+  <div id="lobbySection" class="hidden">
+    <h3>Lobby - asteptam start joc...</h3>
+    <ul id="playerList"></ul>
+    <button id="startBtn" class="hidden" onclick="startGame()">Start Game</button>
+    <button id="restartBtn" class="hidden" onclick="restartGame()" style="background-color: red; color: white;">Restart</button>
+  </div>
+
+  <div id="gameSection" class="hidden">
+    <h2>Game Started!</h2>
+    <p id="yourRole"></p>
+    <div class="timer">Timp ramas: <span id="timer">10:00</span></div>
+    <h3>Locatii posibile:</h3>
+    <ul id="locationList"></ul>
+  </div>
+
+  <script type="module">
+    import LOCATIONS from './spyfall_locations.js';
+
+    let state = JSON.parse(localStorage.getItem("spyfall-state") || '{}');
+    let gameCode = state.code || null;
+    let playerName = sessionStorage.getItem("playerName") || null;
+    let isAdmin = state.admin || false;
+
+    function saveState() {
+      localStorage.setItem("spyfall-state", JSON.stringify(state));
+    }
+
+    function generateGameCode() {
+      gameCode = Math.random().toString(36).substring(2, 7).toUpperCase();
+      state = { code: gameCode, players: [], admin: true, started: false };
+      saveState();
+      document.getElementById("gameCodeDisplay").innerText = `Codul jocului este: ${gameCode}`;
+      document.getElementById("setupSection").classList.add("hidden");
+      document.getElementById("joinSection").classList.remove("hidden");
+      document.getElementById("startBtn").classList.remove("hidden");
+      document.getElementById("restartBtn").classList.remove("hidden");
+    }
+
+    window.joinGame = function() {
+      const inputCode = document.getElementById("inputCode").value.trim().toUpperCase();
+      const name = document.getElementById("playerName").value.trim();
+      if (!inputCode || !name) return alert("Completeaza codul si numele!");
+
+      gameCode = inputCode;
+      playerName = name;
+      sessionStorage.setItem("playerName", name);
+
+      const stored = localStorage.getItem(`spyfall-${gameCode}`);
+      state = stored ? JSON.parse(stored) : { code: gameCode, players: [], admin: false, started: false };
+
+      if (!state.players.includes(name)) {
+        state.players.push(name);
+        localStorage.setItem(`spyfall-${gameCode}`, JSON.stringify(state));
+      }
+      enterLobby();
+    }
+
+    function enterLobby() {
+      document.getElementById("joinSection").classList.add("hidden");
+      document.getElementById("lobbySection").classList.remove("hidden");
+      renderPlayerList();
+
+      if (state.admin) {
+        document.getElementById("startBtn").classList.remove("hidden");
+        document.getElementById("restartBtn").classList.remove("hidden");
+      }
+
+      const interval = setInterval(() => {
+        const stored = localStorage.getItem(`spyfall-${gameCode}`);
+        if (!stored) return;
+        state = JSON.parse(stored);
+        if (state.started) {
+          clearInterval(interval);
+          showGame();
+        } else {
+          renderPlayerList();
+        }
+      }, 2000);
+    }
+
+    function renderPlayerList() {
+      const ul = document.getElementById("playerList");
+      ul.innerHTML = "";
+      state.players.forEach(p => {
+        const li = document.createElement("li");
+        li.innerText = p;
+        ul.appendChild(li);
+      });
+    }
+
+    window.startGame = function() {
+      const locs = Object.keys(LOCATIONS);
+      const selectedLoc = locs[Math.floor(Math.random() * locs.length)];
+      let roles = [...LOCATIONS[selectedLoc]];
+      const spy = state.players[Math.floor(Math.random() * state.players.length)];
+      const assignments = {};
+
+      state.players.forEach(p => {
+        assignments[p] = (p === spy) ? "SPION" : roles.pop() || "Observator";
+      });
+
+      state.started = true;
+      state.location = selectedLoc;
+      state.assignments = assignments;
+      localStorage.setItem(`spyfall-${gameCode}`, JSON.stringify(state));
+      showGame();
+      startTimer();
+    }
+
+    window.restartGame = function() {
+      localStorage.removeItem(`spyfall-${gameCode}`);
+      localStorage.removeItem("spyfall-state");
+      sessionStorage.clear();
+      location.reload();
+    }
+
+    function showGame() {
+      document.getElementById("lobbySection").classList.add("hidden");
+      document.getElementById("gameSection").classList.remove("hidden");
+      const role = state.assignments[playerName];
+      const loc = state.location;
+      document.getElementById("yourRole").innerText =
+        (role === "SPION") ? "Tu esti SPION. Incearca sa afli locatia!" : `Locatia este: ${loc} | Rolul tau: ${role}`;
+
+      const ul = document.getElementById("locationList");
+      ul.innerHTML = "";
+      Object.keys(LOCATIONS).forEach(loc => {
+        const li = document.createElement("li");
+        li.innerText = loc;
+        ul.appendChild(li);
+      });
+    }
+
+    function startTimer() {
+      let seconds = 600;
+      const timerEl = document.getElementById("timer");
+      const interval = setInterval(() => {
+        const min = Math.floor(seconds / 60);
+        const sec = seconds % 60;
+        timerEl.innerText = `${min}:${sec < 10 ? '0' + sec : sec}`;
+        if (seconds-- <= 0) {
+          clearInterval(interval);
+          alert("Timpul a expirat!");
+        }
+      }, 1000);
+    }
+
+    window.onload = () => {
+      if (state && state.code && playerName) {
+        const stored = localStorage.getItem(`spyfall-${state.code}`);
+        if (stored) {
+          state = JSON.parse(stored);
+          if (state.started) showGame();
+          else enterLobby();
+        }
+      }
+    }
+  </script>
+</body>
+</html>
